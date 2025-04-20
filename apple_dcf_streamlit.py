@@ -339,12 +339,53 @@ elif page == "Industry Comparison":
     4. **Investment Thesis**: Strong buy recommendation with $220 price target based on DCF analysis
     """)
     
+    # Calculate ROI metrics based on model data
+    # These calculations would typically be done in the DCF Model page
+    # but for consistency we'll recreate some variables here
     section_header("ROI Analysis")
-    st.markdown("""
+    
+    # Get the sliders again to calculate dynamic metrics
+    base_case_revenue_growth = revenue_growth_range[0] / 100  # Using lower bound of range slider
+    bull_case_revenue_growth = revenue_growth_range[1] / 100  # Using upper bound of range slider
+    base_case_margin = margin_range[0] / 100
+    bull_case_margin = margin_range[1] / 100
+    base_case_wacc = wacc_range[1] / 100  # Conservative WACC (higher)
+    bull_case_wacc = wacc_range[0] / 100  # Optimistic WACC (lower)
+    current_price = 191.24
+    shares_outstanding = 15.7  # In billions
+    
+    # Base case calculations
+    base_case_fcf = 94.795 * (1 + base_case_revenue_growth) * (base_case_margin / 0.253)  # Adjust FCF for growth and margin
+    base_tv = base_case_fcf * (1 + growth_range[0]/100) / (base_case_wacc - growth_range[0]/100)
+    base_pv_factor = 1 / ((1 + base_case_wacc) ** 5)
+    base_ev = 400 + base_tv * base_pv_factor
+    base_equity = base_ev - 110.0  # Subtract net debt
+    base_share_price = base_equity / shares_outstanding
+    base_upside = (base_share_price / current_price - 1) * 100
+    
+    # Bull case calculations
+    bull_case_fcf = 94.795 * (1 + bull_case_revenue_growth) * (bull_case_margin / 0.253)  # Adjust FCF for growth and margin
+    bull_tv = bull_case_fcf * (1 + growth_range[1]/100) / (bull_case_wacc - growth_range[1]/100)
+    bull_pv_factor = 1 / ((1 + bull_case_wacc) ** 5)
+    bull_ev = 400 + bull_tv * bull_pv_factor
+    bull_equity = bull_ev - 110.0  # Subtract net debt
+    bull_share_price = bull_equity / shares_outstanding
+    bull_upside = (bull_share_price / current_price - 1) * 100
+    
+    # Expected IRR calculation (simplified)
+    # IRR ≈ (Terminal Value / Initial Investment)^(1/years) - 1
+    expected_irr = ((bull_share_price / current_price) ** (1/5) - 1) * 100
+    
+    # Risk-adjusted return (simplified Sharpe ratio concept)
+    # Assuming market return of 8% and standard deviation of 15%
+    risk_adj_return = (expected_irr - 8) / 15
+    risk_adj_text = "Superior" if risk_adj_return > 0.5 else "Average" if risk_adj_return > 0.3 else "Below Average"
+    
+    st.markdown(f"""
     Based on our comprehensive DCF analysis and sensitivity testing, Apple presents a compelling investment opportunity:
     
-    - **Base Case**: 14.2% potential upside with moderate growth assumptions
-    - **Bull Case**: 28.5% upside potential if revenue growth exceeds 6% and margins expand
-    - **Expected IRR**: 12.3% annualized return over 5-year investment horizon
-    - **Risk-Adjusted Return**: Superior Sharpe ratio compared to industry peers
+    - **Base Case**: {base_upside:.1f}% potential upside with moderate growth assumptions ({base_case_revenue_growth*100:.1f}% revenue growth)
+    - **Bull Case**: {bull_upside:.1f}% upside potential if revenue growth exceeds {bull_case_revenue_growth*100:.1f}% and margins expand to {bull_case_margin*100:.1f}%
+    - **Expected IRR**: {expected_irr:.1f}% annualized return over 5-year investment horizon
+    - **Risk-Adjusted Return**: {risk_adj_text} Sharpe ratio compared to industry peers
     """)
