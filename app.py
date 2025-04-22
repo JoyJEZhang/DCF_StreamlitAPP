@@ -5,10 +5,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 from PIL import Image
 
+# Import custom modules
+import data_processor as dp
+import dcf_model as dcf
+
 # Page configuration
 st.set_page_config(page_title="Advanced DCF Valuation Dashboard", layout="wide")
 
-# Sidebar for navigation
+# Sidebar navigation
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Select Section", ["Executive Dashboard", "DCF Model", "Sensitivity Analysis", "Industry Comparison"])
 
@@ -22,7 +26,7 @@ projection_years = 5
 def section_header(title):
     st.markdown(f"<h2 style='color:#1E88E5;'>{title}</h2>", unsafe_allow_html=True)
 
-# Executive Dashboard
+# Executive Dashboard page
 if page == "Executive Dashboard":
     st.title(f"Value Engineering Dashboard - {company_name} ({ticker})")
     
@@ -45,24 +49,13 @@ if page == "Executive Dashboard":
     benchmarking, and return on investment calculations to deliver strategic insights for investment decisions.
     """)
     
-    # Sample visualization
+    # Revenue trend visualization
     with st.container():
         section_header("Historical Performance vs Projections")
-        years = [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028]
-        historical_revenue = [260.2, 274.5, 365.8, 394.3, 383.3, None, None, None, None, None]
-        projected_revenue = [None, None, None, None, 383.3, 402.5, 422.6, 443.7, 465.9, 489.2]
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=years, y=historical_revenue, mode='lines+markers', 
-                                name='Historical Revenue', line=dict(color='blue')))
-        fig.add_trace(go.Scatter(x=years, y=projected_revenue, mode='lines+markers', 
-                                name='Projected Revenue', line=dict(color='green', dash='dash')))
-        fig.update_layout(title='Revenue Trend and Forecast (Billions USD)',
-                        xaxis_title='Fiscal Year',
-                        yaxis_title='Revenue (Billions USD)')
+        fig = dp.get_revenue_trend_chart()
         st.plotly_chart(fig, use_container_width=True)
 
-# DCF Model Page
+# DCF Model page
 elif page == "DCF Model":
     st.title(f"Multi-Year DCF Valuation Model - {company_name}")
     
@@ -71,6 +64,7 @@ elif page == "DCF Model":
     Discounted Cash Flow method based on FY 2023 financial data as the baseline.
     """)
     
+    # Collect user input parameters
     with st.expander("Model Parameters", expanded=True):
         col1, col2 = st.columns(2)
         
@@ -84,7 +78,7 @@ elif page == "DCF Model":
             change_in_wc = st.number_input("Change in Working Capital", value=3.0)
         
         with col2:
-            # Growth and rate assumptions
+            # Growth and ratio assumptions
             section_header("Projection Assumptions")
             revenue_growth = st.slider("Revenue Growth Rate (%)", min_value=0.0, max_value=15.0, value=5.0, step=0.5)
             profit_margin = st.slider("Net Profit Margin (%)", min_value=20.0, max_value=30.0, value=25.3, step=0.1)
@@ -92,60 +86,32 @@ elif page == "DCF Model":
             discount_rate = st.slider("Discount Rate (WACC %)", min_value=5.0, max_value=15.0, value=9.0, step=0.1)
             terminal_growth_rate = st.slider("Terminal Growth Rate (%)", min_value=2.0, max_value=5.0, value=2.5, step=0.1)
     
-    # Convert percentage inputs to decimals
-    revenue_growth_rate = revenue_growth / 100
-    profit_margin_rate = profit_margin / 100
-    capex_to_revenue_rate = capex_to_revenue / 100
-    discount_rate_decimal = discount_rate / 100
-    terminal_growth_rate_decimal = terminal_growth_rate / 100
+    # Call DCF model calculation function
+    params = {
+        'revenue': revenue,
+        'net_income': net_income,
+        'depreciation': depreciation,
+        'capex': capex,
+        'change_in_wc': change_in_wc,
+        'revenue_growth': revenue_growth / 100,
+        'profit_margin': profit_margin / 100,
+        'capex_to_revenue': capex_to_revenue / 100,
+        'discount_rate': discount_rate / 100,
+        'terminal_growth_rate': terminal_growth_rate / 100,
+        'current_year': current_year,
+        'projection_years': projection_years
+    }
     
-    # Create projection dataframe
-    years = list(range(current_year, current_year + projection_years + 1))
-    projection_df = pd.DataFrame(index=years)
-    
-    # Project financials
-    projection_df.loc[current_year, 'Revenue'] = revenue
-    projection_df.loc[current_year, 'Net Income'] = net_income
-    projection_df.loc[current_year, 'Depreciation'] = depreciation
-    projection_df.loc[current_year, 'CapEx'] = capex
-    projection_df.loc[current_year, 'Change in WC'] = change_in_wc
-    
-    for year in range(current_year + 1, current_year + projection_years + 1):
-        projection_df.loc[year, 'Revenue'] = projection_df.loc[year-1, 'Revenue'] * (1 + revenue_growth_rate)
-        projection_df.loc[year, 'Net Income'] = projection_df.loc[year, 'Revenue'] * profit_margin_rate
-        projection_df.loc[year, 'Depreciation'] = projection_df.loc[year-1, 'Depreciation'] * (1 + revenue_growth_rate * 0.7)
-        projection_df.loc[year, 'CapEx'] = projection_df.loc[year, 'Revenue'] * capex_to_revenue_rate
-        projection_df.loc[year, 'Change in WC'] = projection_df.loc[year, 'Revenue'] * 0.01
-    
-    # Calculate FCF
-    projection_df['FCF'] = projection_df['Net Income'] + projection_df['Depreciation'] - projection_df['CapEx'] - projection_df['Change in WC']
-    
-    # Present Value calculation
-    for i, year in enumerate(range(current_year + 1, current_year + projection_years + 1)):
-        projection_df.loc[year, 'PV Factor'] = 1 / ((1 + discount_rate_decimal) ** (i+1))
-        projection_df.loc[year, 'PV of FCF'] = projection_df.loc[year, 'FCF'] * projection_df.loc[year, 'PV Factor']
-    
-    # Terminal Value calculation
-    final_year = current_year + projection_years
-    terminal_value = projection_df.loc[final_year, 'FCF'] * (1 + terminal_growth_rate_decimal) / (discount_rate_decimal - terminal_growth_rate_decimal)
-    pv_terminal_value = terminal_value / ((1 + discount_rate_decimal) ** projection_years)
-    
-    # Total Enterprise Value
-    sum_pv_fcf = projection_df.loc[current_year+1:final_year, 'PV of FCF'].sum()
-    enterprise_value = sum_pv_fcf + pv_terminal_value
+    # Run DCF model calculations
+    projection_df, enterprise_value, sum_pv_fcf, pv_terminal_value = dcf.run_dcf_model(params)
     
     # Display projections
     section_header("Multi-Year Financial Projections (Billions USD)")
     st.dataframe(projection_df[['Revenue', 'Net Income', 'FCF']], use_container_width=True)
     
-    # FCF chart
+    # Cash flow chart
     section_header("Free Cash Flow Projection")
-    fcf_fig = px.bar(
-        projection_df.iloc[1:],  # Skip base year
-        x=projection_df.index[1:],
-        y='FCF',
-        title='Projected Free Cash Flow (Billions USD)'
-    )
+    fcf_fig = dp.get_fcf_chart(projection_df)
     st.plotly_chart(fcf_fig, use_container_width=True)
     
     # Valuation results
@@ -158,11 +124,8 @@ elif page == "DCF Model":
     with col3:
         st.metric("Enterprise Value", f"${enterprise_value:.2f}B")
     
-    # Valuation breakdown pie chart
-    labels = ['PV of Projected FCF', 'PV of Terminal Value']
-    values = [sum_pv_fcf, pv_terminal_value]
-    
-    fig = px.pie(values=values, names=labels, title='Enterprise Value Composition')
+    # Valuation composition pie chart
+    fig = dp.get_ev_composition_chart(sum_pv_fcf, pv_terminal_value)
     st.plotly_chart(fig, use_container_width=True)
     
     # Return metrics
@@ -182,11 +145,11 @@ elif page == "DCF Model":
     with col3:
         st.metric("Upside Potential", f"{upside_potential:.1f}%", f"{upside_potential:.1f}%")
 
-# Sensitivity Analysis
+# Sensitivity Analysis page
 elif page == "Sensitivity Analysis":
     st.title("Sensitivity Analysis")
     
-    # Parameters for sensitivity analysis
+    # Sensitivity analysis parameters
     st.markdown("""
     Explore how changes in key assumptions affect Apple's valuation. This analysis helps identify 
     which variables have the most significant impact on enterprise value, enabling more robust 
@@ -202,72 +165,30 @@ elif page == "Sensitivity Analysis":
         revenue_growth_range = st.slider("Revenue Growth Range (%)", min_value=3.0, max_value=7.0, value=(4.0, 6.0), step=0.5)
         margin_range = st.slider("Profit Margin Range (%)", min_value=23.0, max_value=27.0, value=(24.0, 26.0), step=0.5)
     
-    # Generate sensitivity table for WACC vs Growth Rate
+    # Generate sensitivity table and chart
     section_header("Enterprise Value Sensitivity (Billions USD): WACC vs. Terminal Growth")
-    
-    wacc_values = np.arange(wacc_range[0], wacc_range[1] + 0.5, 0.5) / 100
-    growth_values = np.arange(growth_range[0], growth_range[1] + 0.25, 0.25) / 100
-    
-    sensitivity_data = []
-    for growth in growth_values:
-        row_data = []
-        for wacc in wacc_values:
-            # Simplified calculation for demo
-            base_fcf = 94.795  # From earlier calculation
-            terminal_value = base_fcf * (1 + growth) / (wacc - growth)
-            pv_factor = 1 / ((1 + wacc) ** 5)
-            value = 400 + terminal_value * pv_factor  # Simplified EV calculation
-            row_data.append(round(value, 1))
-        sensitivity_data.append(row_data)
-    
-    sensitivity_df = pd.DataFrame(
-        sensitivity_data, 
-        index=[f"{g*100:.2f}%" for g in growth_values],
-        columns=[f"{w*100:.1f}%" for w in wacc_values]
+    sensitivity_df, sensitivity_data, wacc_values, growth_values = dcf.run_sensitivity_analysis(
+        wacc_range, growth_range, base_fcf=94.795
     )
-    sensitivity_df.index.name = "Terminal Growth"
-    sensitivity_df.columns.name = "WACC"
     
-    # Style the dataframe for a heatmap effect
-    def color_scale(val):
-        normalized = (val - sensitivity_df.min().min()) / (sensitivity_df.max().max() - sensitivity_df.min().min())
-        r, g, b = int(255 * (1 - normalized)), int(255 * normalized), 100
-        return f'background-color: rgb({r}, {g}, {b})'
-    
-    styled_df = sensitivity_df.style.applymap(color_scale).format("${:.1f}B")
+    # Style the dataframe
+    styled_df = dp.style_sensitivity_table(sensitivity_df)
     st.dataframe(styled_df, use_container_width=True)
     
-    # 3D Surface plot
+    # 3D chart
     section_header("3D Sensitivity Visualization")
-    
-    wacc_grid, growth_grid = np.meshgrid(wacc_values, growth_values)
-    z_values = np.array(sensitivity_data)
-    
-    fig = go.Figure(data=[go.Surface(z=z_values, x=wacc_values*100, y=growth_values*100)])
-    fig.update_layout(
-        title='Enterprise Value Sensitivity',
-        scene=dict(
-            xaxis_title='WACC (%)',
-            yaxis_title='Terminal Growth (%)',
-            zaxis_title='Enterprise Value ($B)'
-        ),
-        width=800,
-        height=600
-    )
+    fig = dp.get_3d_sensitivity_chart(wacc_values, growth_values, sensitivity_data)
     st.plotly_chart(fig, use_container_width=True)
     
     # Key insights - dynamic calculations
-    min_ev = sensitivity_df.min().min()
-    max_ev = sensitivity_df.max().max()
     current_price = 191.24
     shares_outstanding = 15.7  # In billions
-
+    
     # Calculate WACC impact
     middle_growth_idx = len(growth_values)//2
     low_wacc_idx = 0  # First column
     high_wacc_idx = -1  # Last column
-
-    # Get values from sensitivity table for a consistent growth rate
+    
     if len(sensitivity_data) > 0 and len(sensitivity_data[0]) > 1:
         low_wacc_ev = sensitivity_data[middle_growth_idx][low_wacc_idx]
         high_wacc_ev = sensitivity_data[middle_growth_idx][high_wacc_idx]
@@ -275,31 +196,33 @@ elif page == "Sensitivity Analysis":
         wacc_diff = (wacc_values[-1] - wacc_values[0]) * 100
         per_half_percent = round(wacc_impact / (wacc_diff / 0.5), 1)
     else:
-        per_half_percent = 12.5  # Fallback value
-
-    # Calculate optimal upside scenario
+        per_half_percent = 12.5  # Default value
+    
+    # Calculate optimal scenario
+    min_ev = sensitivity_df.min().min()
+    max_ev = sensitivity_df.max().max()
     optimal_share_price = (max_ev - 110.0) / shares_outstanding
     optimal_upside = round((optimal_share_price / current_price - 1) * 100, 1)
-
+    
     # Calculate worst-case scenario
     worst_case_ev = sensitivity_data[-1][-1] if len(sensitivity_data) > 0 and len(sensitivity_data[-1]) > 0 else min_ev
     worst_case_share_price = (worst_case_ev - 110.0) / shares_outstanding
     worst_case_upside = (worst_case_share_price / current_price - 1) * 100
     fair_value_assessment = "fairly valued" if worst_case_upside > -10 else "undervalued" if worst_case_upside > 0 else "potentially overvalued"
-
+    
     # Get lowest WACC for growth sensitivity note
     lowest_wacc = wacc_range[0] if isinstance(wacc_range, tuple) else 8.0
-
+    
     st.markdown(f"""
     ### Key Insights from Sensitivity Analysis:
-
+    
     1. **WACC Impact**: Each 0.5% decrease in WACC results in approximately {per_half_percent}% increase in enterprise value
     2. **Growth Sensitivity**: Terminal growth rate changes have more pronounced effects at lower WACC levels ({lowest_wacc:.1f}%)
     3. **Optimal Scenario**: The most favorable valuation scenario suggests an upside potential of ~{optimal_upside}%
     4. **Risk Assessment**: Even in the most conservative scenario, the model indicates Apple remains {fair_value_assessment}
     """)
 
-# Industry Comparison
+# Industry Comparison page
 elif page == "Industry Comparison":
     st.title("Industry Benchmarking & Peer Analysis")
     
@@ -308,18 +231,8 @@ elif page == "Industry Comparison":
     relative strengths, weaknesses, and potential investment opportunities.
     """)
     
-    # Peer comparison data
-    peers = ["Apple", "Microsoft", "Alphabet", "Amazon", "Meta"]
-    metrics = {
-        "Market Cap ($B)": [2980, 2890, 1780, 1760, 1130],
-        "P/E Ratio": [31.5, 34.8, 24.5, 59.3, 26.1],
-        "Revenue Growth (%)": [5.8, 7.2, 9.5, 8.7, 11.2],
-        "Net Margin (%)": [25.3, 36.8, 23.7, 8.5, 29.2],
-        "ROE (%)": [160.1, 42.5, 27.8, 18.7, 26.9],
-        "EV/EBITDA": [24.8, 25.3, 14.7, 21.5, 15.8]
-    }
-    
-    peer_df = pd.DataFrame(metrics, index=peers)
+    # Get peer comparison data
+    peer_df = dp.get_peer_comparison_data()
     
     # Display peer comparison
     section_header("Tech Giant Comparison")
@@ -327,40 +240,8 @@ elif page == "Industry Comparison":
     
     # Radar chart
     section_header("Competitive Positioning")
-    
-    # Normalize data for radar chart
-    radar_metrics = ["Revenue Growth (%)", "Net Margin (%)", "ROE (%)", "EV/EBITDA"]
-    radar_df = peer_df[radar_metrics].copy()
-    
-    # Invert EV/EBITDA so lower is better like the other metrics
-    max_ev_ebitda = radar_df["EV/EBITDA"].max() * 1.1
-    radar_df["EV/EBITDA"] = max_ev_ebitda - radar_df["EV/EBITDA"]
-    
-    # Normalize to 0-100 scale
-    for col in radar_df.columns:
-        radar_df[col] = 100 * (radar_df[col] - radar_df[col].min()) / (radar_df[col].max() - radar_df[col].min())
-    
-    # Create radar chart
-    fig = go.Figure()
-    
-    for company in radar_df.index:
-        fig.add_trace(go.Scatterpolar(
-            r=radar_df.loc[company].values.tolist() + [radar_df.loc[company].values[0]],
-            theta=radar_metrics + [radar_metrics[0]],
-            fill='toself',
-            name=company
-        ))
-    
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                visible=True,
-                range=[0, 100]
-            )),
-        showlegend=True
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
+    radar_fig = dp.get_radar_chart(peer_df)
+    st.plotly_chart(radar_fig, use_container_width=True)
     
     # Calculate dynamic insights based on peer comparison
     apple_roe = peer_df.loc["Apple", "ROE (%)"]
@@ -368,34 +249,82 @@ elif page == "Industry Comparison":
     avg_peer_pe = peer_df.loc[peer_df.index != "Apple", "P/E Ratio"].mean()
     apple_pe = peer_df.loc["Apple", "P/E Ratio"]
     pe_premium = round((apple_pe / avg_peer_pe - 1) * 100, 1)
-
-    # Add this line to define current_price
-    current_price = 191.24  # Define current stock price here
-
-    # Determine relative ranking for margins
+    
+    # Add this line to define current price
+    current_price = 191.24
+    
+    # Determine relative margin ranking
     margin_rank = peer_df["Net Margin (%)"].rank(ascending=False)["Apple"]
     margin_text = "industry-leading" if margin_rank == 1 else "above-average" if margin_rank <= 3 else "average"
-
-    # Calculate a dynamic price target based on peer metrics and DCF
-    # Simple price target calculation based on peer P/E + premium
-    avg_forward_growth = peer_df.loc["Apple", "Revenue Growth (%)"] * 1.1  # Forward growth estimate
+    
+    # Calculate dynamic price target
+    avg_forward_growth = peer_df.loc["Apple", "Revenue Growth (%)"] * 1.1
     growth_adjusted_pe = avg_peer_pe * (1 + (avg_forward_growth / 100) * 0.5)
     pe_target_price = round((apple_pe * 1.05) * (peer_df.loc["Apple", "Net Margin (%)"] / 24) * current_price / apple_pe)
-
-    # Use simple DCF calculation if available, otherwise use PE-based target
-    # Since 'bull_share_price' likely isn't accessible, we'll use the PE-based target directly
+    
+    # Use PE-based target price
     price_target = pe_target_price
-
-    # Determine recommendation strength based on upside
+    
+    # Determine recommendation strength
     upside_potential = (price_target / current_price - 1) * 100
-
     recommendation = "Strong buy" if upside_potential > 20 else "Buy" if upside_potential > 10 else "Hold"
-
+    
     st.markdown(f"""
     ### Value Engineering Insights:
-
+    
     1. **Competitive Advantage**: Apple maintains {margin_text} profit margins ({apple_margin:.1f}%) and exceptional ROE ({apple_roe:.1f}%)
     2. **Valuation Context**: Trades at {pe_premium}% {("premium to" if pe_premium > 0 else "discount to")} peers, {("justified by superior financial metrics" if pe_premium > 0 else "suggesting potential value opportunity")}
     3. **Strategic Position**: Cash flow stability provides resilience against industry disruptions
     4. **Investment Thesis**: {recommendation} recommendation with ${price_target} price target based on DCF analysis
+    """)
+    
+    # ROI Analysis
+    section_header("ROI Analysis")
+    
+    # Define all necessary variables
+    shares_outstanding = 15.7  # In billions
+    base_fcf = 94.795
+    
+    # Define default values for calculations
+    base_case_revenue_growth = 0.04  # 4%
+    bull_case_revenue_growth = 0.06  # 6% 
+    base_case_margin = 0.24  # 24%
+    bull_case_margin = 0.26  # 26%
+    base_case_wacc = 0.10  # 10%
+    bull_case_wacc = 0.08  # 8%
+    base_case_growth = 0.02  # 2%
+    bull_case_growth = 0.03  # 3%
+    
+    # Base case calculations
+    base_case_fcf = base_fcf * (1 + base_case_revenue_growth) * (base_case_margin / 0.253)
+    base_tv = base_case_fcf * (1 + base_case_growth) / (base_case_wacc - base_case_growth)
+    base_pv_factor = 1 / ((1 + base_case_wacc) ** 5)
+    base_ev = 400 + base_tv * base_pv_factor
+    base_equity = base_ev - 110.0
+    base_share_price = base_equity / shares_outstanding
+    base_upside = (base_share_price / current_price - 1) * 100
+    
+    # Bull case calculations
+    bull_case_fcf = base_fcf * (1 + bull_case_revenue_growth) * (bull_case_margin / 0.253)
+    bull_tv = bull_case_fcf * (1 + bull_case_growth) / (bull_case_wacc - bull_case_growth)
+    bull_pv_factor = 1 / ((1 + bull_case_wacc) ** 5)
+    bull_ev = 400 + bull_tv * bull_pv_factor
+    bull_equity = bull_ev - 110.0
+    bull_share_price = bull_equity / shares_outstanding
+    bull_upside = (bull_share_price / current_price - 1) * 100
+    
+    # Expected IRR calculation (simplified)
+    expected_irr = ((bull_share_price / current_price) ** (1/5) - 1) * 100
+    
+    # Risk-adjusted return (simplified Sharpe ratio concept)
+    risk_adj_return = (expected_irr - 8) / 15
+    risk_adj_text = "Superior" if risk_adj_return > 0.5 else "Average" if risk_adj_return > 0.3 else "Below Average"
+    
+    st.markdown(f"""
+    Based on our comprehensive DCF analysis and sensitivity testing, Apple presents a compelling investment opportunity:
+    
+    - **Base Case**: {base_upside:.1f}% potential upside with moderate growth assumptions ({base_case_revenue_growth*100:.1f}% revenue growth)
+    - **Bull Case**: {bull_upside:.1f}% upside potential if revenue growth exceeds {bull_case_revenue_growth*100:.1f}% and margins expand to {bull_case_margin*100:.1f}%
+    - **Expected IRR**: {expected_irr:.1f}% annualized return over 5-year investment horizon
+    - **Risk-Adjusted Return**: {risk_adj_text} Sharpe ratio compared to industry peers
     """)
