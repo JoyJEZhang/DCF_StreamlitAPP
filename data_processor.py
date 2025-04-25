@@ -2,7 +2,15 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+import data_fetcher as df
 
+def get_apple_dcf_data(refresh=False):
+       """Get Apple's financial data for DCF model"""
+       if refresh:
+           return df.fetch_apple_dcf_data()
+       else:
+           return df.get_apple_dcf_data()
+       
 def get_revenue_trend_chart():
     """Generate revenue trend and forecast chart"""
     years = [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028]
@@ -112,3 +120,10 @@ def get_3d_sensitivity_chart(wacc_values, growth_values, sensitivity_data):
         height=600
     )
     return fig
+
+def get_apple_dcf_data(refresh=False):
+    """Get Apple's financial data for DCF model"""
+    if refresh:
+        return df.fetch_apple_dcf_data()
+    else:
+        return df.get_apple_dcf_data()

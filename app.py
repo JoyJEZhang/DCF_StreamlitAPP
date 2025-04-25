@@ -64,6 +64,20 @@ elif page == "DCF Model":
     Discounted Cash Flow method based on FY 2023 financial data as the baseline.
     """)
     
+    # Add refresh button for Apple financial data
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if 'df' in dir(dp) and hasattr(dp.df, 'get_last_update_time'):
+            st.info(f"Last data update: {dp.df.get_last_update_time()}")
+    with col2:
+        refresh_apple_data = st.button("🔄 Refresh Apple Data")
+    
+    # Get Apple's financial data (refresh if button clicked)
+    apple_data = dp.get_apple_dcf_data(refresh=refresh_apple_data)
+    
+    if refresh_apple_data:
+        st.success("Apple financial data updated from Yahoo Finance!")
+    
     # Collect user input parameters
     with st.expander("Model Parameters", expanded=True):
         col1, col2 = st.columns(2)
@@ -71,11 +85,11 @@ elif page == "DCF Model":
         with col1:
             # Base year inputs (FY 2023)
             section_header("Base Year Financials (Billions USD)")
-            revenue = st.number_input("Annual Revenue", value=383.3)
-            net_income = st.number_input("Net Income", value=96.995)
-            depreciation = st.number_input("Depreciation & Amortization", value=11.5)
-            capex = st.number_input("Capital Expenditure", value=10.7)
-            change_in_wc = st.number_input("Change in Working Capital", value=3.0)
+            revenue = st.number_input("Annual Revenue", value=apple_data['revenue'])
+            net_income = st.number_input("Net Income", value=apple_data['net_income'])
+            depreciation = st.number_input("Depreciation & Amortization", value=apple_data['depreciation'])
+            capex = st.number_input("Capital Expenditure", value=apple_data['capex'])
+            change_in_wc = st.number_input("Change in Working Capital", value=apple_data['change_in_wc'])
         
         with col2:
             # Growth and ratio assumptions
@@ -130,10 +144,11 @@ elif page == "DCF Model":
     
     # Return metrics
     section_header("Investment Return Metrics")
-    shares_outstanding = 15.7  # In billions
-    current_price = 191.24
+    current_price = apple_data['current_price']
+    shares_outstanding = apple_data['shares_outstanding']
+    net_debt = apple_data['net_debt']
     
-    equity_value = enterprise_value - 110.0  # Subtract net debt
+    equity_value = enterprise_value - net_debt
     implied_share_price = equity_value / shares_outstanding
     upside_potential = (implied_share_price / current_price - 1) * 100
     
@@ -258,11 +273,10 @@ elif page == "Industry Comparison":
     margin_text = "industry-leading" if margin_rank == 1 else "above-average" if margin_rank <= 3 else "average"
     
     # Calculate dynamic price target
-    avg_forward_growth = peer_df.loc["Apple", "Revenue Growth (%)"] * 1.1
-    growth_adjusted_pe = avg_peer_pe * (1 + (avg_forward_growth / 100) * 0.5)
-    pe_target_price = round((apple_pe * 1.05) * (peer_df.loc["Apple", "Net Margin (%)"] / 24) * current_price / apple_pe)
+    shares_outstanding = 15.7  # In billions
     
-    # Use PE-based target price
+    # Simple price target calculation
+    pe_target_price = round((apple_pe * 1.05) * (peer_df.loc["Apple", "Net Margin (%)"] / 24) * current_price / apple_pe)
     price_target = pe_target_price
     
     # Determine recommendation strength
@@ -282,7 +296,6 @@ elif page == "Industry Comparison":
     section_header("ROI Analysis")
     
     # Define all necessary variables
-    shares_outstanding = 15.7  # In billions
     base_fcf = 94.795
     
     # Define default values for calculations

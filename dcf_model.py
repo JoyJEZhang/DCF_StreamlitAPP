@@ -1,5 +1,12 @@
 import pandas as pd
 import numpy as np
+# import yfinance as yf
+# import pandas_datareader as pdr
+import os
+import json
+from datetime import datetime
+import plotly.express as px
+import plotly.graph_objects as go
 
 def run_dcf_model(params):
     """
@@ -79,3 +86,14 @@ def run_sensitivity_analysis(wacc_range, growth_range, base_fcf=94.795):
     sensitivity_df.columns.name = "WACC"
     
     return sensitivity_df, sensitivity_data, wacc_values, growth_values
+
+def get_peer_comparison_data(use_cached=True):
+    """Get peer comparison data, optionally refreshing from source"""
+    if use_cached:
+        return df.get_cached_or_default_data()
+    else:
+        return df.fetch_peer_comparison_data()
+
+def get_last_update_time():
+    """Get the time when data was last updated"""
+    return df.get_last_update_time()
