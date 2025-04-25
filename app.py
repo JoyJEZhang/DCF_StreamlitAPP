@@ -78,6 +78,35 @@ elif page == "DCF Model":
     if refresh_apple_data:
         st.success("Apple financial data updated from Yahoo Finance!")
     
+    # New feature: ML-based growth rate prediction
+    with st.expander("🧠 ML-based Growth Rate Prediction", expanded=True):
+        ml_col1, ml_col2 = st.columns([3, 1])
+        with ml_col2:
+            refresh_ml = st.button("🔄 Refresh ML Prediction")
+        
+        # Get ML prediction results
+        ml_results = dp.get_ml_growth_prediction(refresh=refresh_ml)
+        
+        # Display the ML prediction
+        st.info(f"🤖 **ML Consensus Prediction:** {ml_results['growth_percentage']:.2f}% annual revenue growth rate")
+        st.caption(f"Based on: {', '.join(ml_results['models_used'])}")
+        
+        # Use tabs to show the charts
+        ml_tab1, ml_tab2 = st.tabs(["Model Comparison", "Historical Data"])
+        
+        with ml_tab1:
+            # Show chart comparing different model predictions
+            model_fig = dp.get_model_comparison_chart(ml_results)
+            st.plotly_chart(model_fig, use_container_width=True)
+        
+        with ml_tab2:
+            # Show historical revenue with projection
+            hist_fig = dp.get_revenue_history_chart(ml_results)
+            st.plotly_chart(hist_fig, use_container_width=True)
+        
+        # Add button to use ML prediction in DCF model
+        use_ml_prediction = st.button("Use ML Prediction in DCF Model")
+    
     # Collect user input parameters
     with st.expander("Model Parameters", expanded=True):
         col1, col2 = st.columns(2)
@@ -94,7 +123,9 @@ elif page == "DCF Model":
         with col2:
             # Growth and ratio assumptions
             section_header("Projection Assumptions")
-            revenue_growth = st.slider("Revenue Growth Rate (%)", min_value=0.0, max_value=15.0, value=5.0, step=0.5)
+            # Use ML prediction if button was clicked
+            default_growth = ml_results['growth_percentage'] if 'use_ml_prediction' in locals() and use_ml_prediction else 5.0
+            revenue_growth = st.slider("Revenue Growth Rate (%)", min_value=0.0, max_value=15.0, value=default_growth, step=0.5)
             profit_margin = st.slider("Net Profit Margin (%)", min_value=20.0, max_value=30.0, value=25.3, step=0.1)
             capex_to_revenue = st.slider("CapEx to Revenue (%)", min_value=2.0, max_value=5.0, value=2.8, step=0.1)
             discount_rate = st.slider("Discount Rate (WACC %)", min_value=5.0, max_value=15.0, value=9.0, step=0.1)

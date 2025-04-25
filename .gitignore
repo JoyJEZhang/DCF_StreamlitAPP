@@ -1,0 +1,4 @@
+venv/
+__pycache__/
+*.pyc
+financial_data_cache.json

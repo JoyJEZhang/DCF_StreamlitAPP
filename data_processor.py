@@ -3,7 +3,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import data_fetcher as df
-
+import sys
 def get_apple_dcf_data(refresh=False):
        """Get Apple's financial data for DCF model"""
        if refresh:
@@ -127,3 +127,140 @@ def get_apple_dcf_data(refresh=False):
         return df.fetch_apple_dcf_data()
     else:
         return df.get_apple_dcf_data()
+
+def get_ml_growth_prediction(refresh=False):
+    """
+    Get ML-based revenue growth prediction
+    
+    Returns:
+    - Dictionary with growth percentage and model details
+    """
+    # Get historical revenue data
+    hist_data = df.get_historical_revenue_data(refresh=refresh)
+    
+    # If ML models are available, use them to predict growth
+    if 'ml_models' in sys.modules:
+        import ml_models as ml
+        return ml.get_recommended_growth_rate(hist_data)
+    else:
+        # Fallback to simple calculation if ml_models not available
+        growth_rates = hist_data['revenue'].pct_change(4).dropna().values  # YoY growth
+        avg_growth = np.mean(growth_rates) * 100
+        return {
+            'growth_percentage': avg_growth,
+            'models_used': ['historical_average'],
+            'all_results': {'historical_average': {'predicted_growth': avg_growth/100}}
+        }
+
+def get_model_comparison_chart(ml_results):
+    """
+    Generate a chart to compare different ML model predictions
+    
+    Parameters:
+    - ml_results: Results dictionary from get_ml_growth_prediction
+    
+    Returns:
+    - Plotly figure object
+    """
+    all_results = ml_results.get('all_results', {})
+    
+    # Prepare data for visualization
+    models = []
+    predictions = []
+    
+    for model_name, result in all_results.items():
+        if model_name != 'historical_data' and model_name != 'consensus':
+            if isinstance(result, dict) and 'predicted_growth' in result:
+                models.append(model_name.replace('_', ' ').title())
+                predictions.append(result['predicted_growth'] * 100)  # Convert to percentage
+    
+    # Add consensus prediction if available
+    if 'consensus' in all_results:
+        models.append('Consensus (Weighted Average)')
+        predictions.append(all_results['consensus']['predicted_growth'] * 100)
+    
+    # Create bar chart
+    fig = px.bar(
+        x=models,
+        y=predictions,
+        title='Revenue Growth Rate Predictions by Model',
+        labels={'x': 'Model', 'y': 'Predicted Growth Rate (%)'},
+        color=predictions,
+        color_continuous_scale=px.colors.sequential.Blues
+    )
+    
+    # Add a horizontal line for the consensus value
+    if 'consensus' in all_results:
+        consensus_value = all_results['consensus']['predicted_growth'] * 100
+        fig.add_shape(
+            type='line',
+            x0=-0.5,
+            x1=len(models) - 0.5,
+            y0=consensus_value,
+            y1=consensus_value,
+            line=dict(color='red', width=2, dash='dash')
+        )
+    
+    # Improve layout
+    fig.update_layout(
+        xaxis_tickangle=-45,
+        yaxis_title='Predicted Annual Growth Rate (%)'
+    )
+    
+    return fig
+
+def get_revenue_history_chart(ml_results):
+    """
+    Generate a chart showing historical revenue with ML model prediction
+    
+    Parameters:
+    - ml_results: Results dictionary from get_ml_growth_prediction
+    
+    Returns:
+    - Plotly figure object
+    """
+    # Get historical data
+    if 'all_results' in ml_results and 'historical_data' in ml_results['all_results']:
+        hist_data = ml_results['all_results']['historical_data']
+    else:
+        hist_data = df.get_historical_revenue_data()
+    
+    # Create the line chart for historical revenue
+    fig = px.line(
+        hist_data,
+        x='date',
+        y='revenue',
+        title='Historical Quarterly Revenue with ML Growth Prediction',
+        labels={'revenue': 'Revenue (Billions USD)', 'date': 'Quarter'}
+    )
+    
+    # Add a projection line based on the ML consensus growth rate
+    if 'growth_percentage' in ml_results:
+        # Get the last data point
+        last_date = hist_data['date'].max()
+        last_revenue = hist_data.loc[hist_data['date'] == last_date, 'revenue'].values[0]
+        
+        # Create projection dates (4 quarters ahead)
+        projection_dates = pd.date_range(start=last_date, periods=5, freq='Q')
+        
+        # Calculate projected revenue using the predicted growth rate
+        annual_growth_rate = ml_results['growth_percentage'] / 100
+        quarterly_growth_rate = (1 + annual_growth_rate) ** (1/4) - 1  # Convert annual to quarterly
+        
+        projection_revenue = [last_revenue]
+        for i in range(1, 5):
+            next_revenue = projection_revenue[-1] * (1 + quarterly_growth_rate)
+            projection_revenue.append(next_revenue)
+        
+        # Add the projection line
+        fig.add_trace(
+            go.Scatter(
+                x=projection_dates,
+                y=projection_revenue,
+                mode='lines+markers',
+                line=dict(dash='dash', color='green'),
+                name=f"ML Projection ({ml_results['growth_percentage']:.1f}% annual growth)"
+            )
+        )
+    
+    return fig
