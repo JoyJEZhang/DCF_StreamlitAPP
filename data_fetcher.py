@@ -152,14 +152,17 @@ def fetch_apple_dcf_data():
         cash_flow = aapl.cashflow
         balance_sheet = aapl.balance_sheet
         
-        # Initialize with default values in case fetching fails
+        # Get real-time stock price
+        current_price = get_current_stock_price("AAPL")
+        
+        # Initialize with default values but use real-time price
         dcf_data = {
             'revenue': 383.3,              # Billions USD
             'net_income': 96.995,          # Billions USD
             'depreciation': 11.5,          # Billions USD
             'capex': 10.7,                 # Billions USD
             'change_in_wc': 3.0,           # Billions USD
-            'current_price': 191.24,       # USD
+            'current_price': current_price, # Real-time price instead of 191.24
             'shares_outstanding': 15.7,    # Billions
             'net_debt': 110.0              # Billions USD
         }
@@ -245,26 +248,22 @@ def fetch_apple_dcf_data():
         }
 
 def get_apple_dcf_data():
-    """Get Apple DCF data from cache or default"""
-    if os.path.exists(CACHE_FILE):
-        try:
-            with open(CACHE_FILE, 'r') as f:
-                cache_data = json.load(f)
-                if "apple_dcf_data" in cache_data:
-                    return cache_data["apple_dcf_data"]
-        except:
-            pass
+    """
+    Get Apple's financial data for DCF model with real-time stock price
+    """
+    # Get real-time stock price instead of using hardcoded value
+    current_price = get_current_stock_price("AAPL")
     
-    # Default Apple DCF data
+    # Return financial data using current price
     return {
-        'revenue': 383.3,              # Billions USD
-        'net_income': 96.995,          # Billions USD
-        'depreciation': 11.5,          # Billions USD
-        'capex': 10.7,                 # Billions USD
-        'change_in_wc': 3.0,           # Billions USD
-        'current_price': 191.24,       # USD
-        'shares_outstanding': 15.7,    # Billions 
-        'net_debt': 110.0              # Billions USD
+        'revenue': 394.33,
+        'net_income': 99.82,
+        'depreciation': 11.15,
+        'capex': -10.71,
+        'change_in_wc': -7.93,
+        'current_price': current_price,  # Now using dynamic price
+        'shares_outstanding': 15.7,
+        'net_debt': 110.0
     }
 
 def fetch_historical_revenue_data(ticker="AAPL", periods=32):
@@ -526,3 +525,21 @@ def _update_cache(new_data):
                 json.dump(new_data, f)
     except Exception as e:
         print(f"Error updating cache: {e}")
+
+def get_current_stock_price(ticker="AAPL"):
+    """
+    Get current stock price from Yahoo Finance
+    """
+    try:
+        stock = yf.Ticker(ticker)
+        ticker_data = stock.history(period="1d")
+        
+        if not ticker_data.empty:
+            current_price = ticker_data['Close'].iloc[-1]
+            return current_price
+        else:
+            print(f"Warning: No data returned for {ticker}, using default price")
+            return 191.24  
+    except Exception as e:
+        print(f"Error fetching current stock price: {e}")
+        return 191.24  

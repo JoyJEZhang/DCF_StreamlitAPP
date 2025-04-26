@@ -11,6 +11,15 @@ import dcf_model as dcf
 import data_fetcher as df
 import ml_models
 
+# Add this near line 20, after imports but before page sections
+# Initialize global financial data
+def get_financial_data():
+    """Get financial data once to use throughout the app"""
+    return dp.get_apple_dcf_data()
+
+# Get data at startup
+apple_data = get_financial_data()
+
 # Page configuration
 st.set_page_config(page_title="Advanced DCF Valuation Dashboard", layout="wide")
 
@@ -35,7 +44,7 @@ if page == "Executive Dashboard":
     # Key metrics row
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Current Stock Price", "$191.24", "4.2%")
+        st.metric("Current Stock Price", f"${apple_data['current_price']:.2f}", "4.2%")
     with col2:
         st.metric("Market Cap", "$2.98T", "5.7%")
     with col3:
@@ -436,6 +445,9 @@ elif page == "Sensitivity Analysis":
     investment decisions.
     """)
     
+    # Get Apple's financial data
+    apple_data = dp.get_apple_dcf_data()
+    
     col1, col2 = st.columns(2)
     with col1:
         wacc_range = st.slider("WACC Range (%)", min_value=7.0, max_value=11.0, value=(8.0, 10.0), step=0.5)
@@ -461,8 +473,8 @@ elif page == "Sensitivity Analysis":
     st.plotly_chart(fig, use_container_width=True)
     
     # Key insights - dynamic calculations
-    current_price = 191.24
-    shares_outstanding = 15.7  # In billions
+    current_price = apple_data['current_price']
+    shares_outstanding = apple_data['shares_outstanding']
     
     # Calculate WACC impact
     middle_growth_idx = len(growth_values)//2
@@ -530,8 +542,8 @@ elif page == "Industry Comparison":
     apple_pe = peer_df.loc["Apple", "P/E Ratio"]
     pe_premium = round((apple_pe / avg_peer_pe - 1) * 100, 1)
     
-    # Add this line to define current price
-    current_price = 191.24
+    # Use global apple_data
+    current_price = apple_data['current_price']
     
     # Determine relative margin ranking
     margin_rank = peer_df["Net Margin (%)"].rank(ascending=False)["Apple"]
