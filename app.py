@@ -8,6 +8,8 @@ from PIL import Image
 # Import custom modules
 import data_processor as dp
 import dcf_model as dcf
+import data_fetcher as df
+import ml_models
 
 # Page configuration
 st.set_page_config(page_title="Advanced DCF Valuation Dashboard", layout="wide")
@@ -87,32 +89,223 @@ elif page == "DCF Model":
         # Get ML prediction results
         ml_results = dp.get_ml_growth_prediction(refresh=refresh_ml)
         
-        # Display the ML prediction
+        # Display ML prediction
         st.info(f"🤖 **ML Consensus Prediction:** {ml_results['growth_percentage']:.2f}% annual revenue growth rate")
         st.caption(f"Based on: {', '.join(ml_results['models_used'])}")
         
-        # Use tabs to show the charts
-        ml_tab1, ml_tab2 = st.tabs(["Model Comparison", "Historical Data"])
+        # Use tabs to display charts
+        ml_tab1, ml_tab2, ml_tab3 = st.tabs(["Model Comparison", "Model Validation", "Historical Data"])
         
         with ml_tab1:
-            # Show chart comparing different model predictions
+            # Display chart comparing different model predictions
+            st.subheader("Revenue Growth Rate Predictions by Model")
             model_fig = dp.get_model_comparison_chart(ml_results)
             st.plotly_chart(model_fig, use_container_width=True)
+            
+            # Replace entire weight information and visualization section
+            if 'all_results' in ml_results and 'consensus' in ml_results['all_results']:
+                weights = ml_results['all_results']['consensus'].get('model_weights', {})
+                if weights:
+                    # Create weight data
+                    weight_df = pd.DataFrame({
+                        'Model': [k.replace('_', ' ').title() for k in weights.keys()],
+                        'Weight': [v*100 for v in weights.values()]
+                    })
+                    
+                    # Plot weight chart
+                    weight_fig = px.pie(weight_df, values='Weight', names='Model', 
+                                        title='Model Weights in Consensus Calculation',
+                                        hole=0.4)
+                    st.plotly_chart(weight_fig, use_container_width=True)
+                    
+                    # Add calculation formula example
+                    st.markdown("#### Consensus Calculation")
+                    
+                    # Create formula section
+                    formula_parts = []
+                    all_results = ml_results.get('all_results', {})
+                    
+                    for model_name, weight in weights.items():
+                        if model_name in all_results and 'predicted_growth' in all_results[model_name]:
+                            pred_value = all_results[model_name]['predicted_growth'] * 100
+                            formula_parts.append(f"({model_name.replace('_', ' ').title()}: {pred_value:.1f}% × {weight*100:.1f}%)")
+                    
+                    formula = "Consensus = " + " + ".join(formula_parts)
+                    st.markdown(f"```\n{formula}\n```")
+            
+            # Add user-adjustable weight section
+            st.markdown("#### Customize Model Weights")
+            st.caption("Adjust the importance of each model in the consensus calculation")
+            
+            custom_weights = {}
+            cols = st.columns(len(weights))
+            
+            for i, (model, default_weight) in enumerate(weights.items()):
+                with cols[i]:
+                    custom_weights[model] = st.slider(
+                        f"{model.replace('_', ' ').title()}", 
+                        min_value=0, 
+                        max_value=100, 
+                        value=int(default_weight*100),
+                        step=5
+                    ) / 100
+            
+            # Normalize custom weights
+            total = sum(custom_weights.values())
+            if total > 0:
+                custom_weights = {k: v/total for k, v in custom_weights.items()}
+            
+            # Calculate custom weighted consensus
+            if st.button("Recalculate Consensus"):
+                custom_consensus = sum(
+                    ml_results['all_results'][model]['predicted_growth'] * custom_weights.get(model, 0) 
+                    for model in custom_weights.keys() if model in ml_results['all_results']
+                )
+                st.success(f"Custom weighted consensus: {custom_consensus*100:.2f}% annual growth rate")
         
         with ml_tab2:
-            # Show historical revenue with projection
-            hist_fig = dp.get_revenue_history_chart(ml_results)
-            st.plotly_chart(hist_fig, use_container_width=True)
+            st.subheader("Model Performance Evaluation")
+            
+            # Use a single column for now to simplify layout
+            st.markdown("#### Model Selection Guidance")
+            st.markdown("""
+            **How to interpret metrics:**
+            
+            - **R²**: Higher is better (max 1.0). Measures how well the model fits historical data.
+            - **MSE/RMSE**: Lower is better. Measures prediction error magnitude.
+            - **MAE**: Lower is better. Average absolute prediction error.
+            - **AIC/BIC**: Lower is better. Balance between fit and complexity.
+            
+            **When to use each model:**
+            
+            - **Linear Regression**: 
+              • Best for capturing simple linear growth trends
+              • Performs well with limited data
+              • Easy to interpret and communicate results
+              • Provides conservative predictions, less prone to extreme forecasts
+
+            - **Ridge Regression**: 
+              • Better than linear regression when dealing with multiple correlated features
+              • Prevents overfitting through regularization
+              • More robust when features outnumber observations
+              • Shrinks coefficients to produce more stable predictions
+
+            - **Random Forest**: 
+              • Captures complex non-linear relationships
+              • Automatically handles feature interactions
+              • Identifies seasonal patterns and product cycle effects
+              • Robust against outliers
+              • Most effective when sufficient historical data is available
+
+            - **Historical Average**: 
+              • Serves as a benchmark for other models
+              • Performs well in stable markets with low volatility
+              • Simple and less prone to overfitting
+              • Highly effective when historical patterns strongly repeat
+            """)
+            
+            st.markdown("#### Accuracy Metrics")
+            # Display model validation metrics
+            validation_fig = dp.get_model_validation_metrics(ml_results)
+            if validation_fig:
+                st.plotly_chart(validation_fig, use_container_width=True)
+            else:
+                st.info("Validation metrics not available for current models")
+            
+            # Add forecast comparison
+            st.markdown("#### Forecast Comparison")
+            forecast_fig = dp.get_model_forecast_comparison(ml_results, 
+                                                        ml_results.get('all_results', {}).get('historical_data'))
+            if forecast_fig:
+                st.plotly_chart(forecast_fig, use_container_width=True)
         
-        # Add button to use ML prediction in DCF model
-        use_ml_prediction = st.button("Use ML Prediction in DCF Model")
+        with ml_tab3:
+            # Display historical revenue and forecasts - using forecast_comparison for better seasonality visualization
+            st.subheader("Historical & Projected Quarterly Revenue (2021-2025)")
+            
+            # Get historical data
+            historical_data = ml_results.get('all_results', {}).get('historical_data')
+            if historical_data is not None:
+                # Only keep recent years' data for display
+                if isinstance(historical_data, pd.DataFrame) and 'date' in historical_data.columns:
+                    recent_years_data = historical_data[
+                        pd.to_datetime(historical_data['date']) >= pd.Timestamp('2021-01-01')
+                    ]
+                else:
+                    recent_years_data = historical_data
+                
+                # Use forecast_comparison instead of revenue_history_chart
+                forecast_fig = dp.get_model_forecast_comparison(ml_results, recent_years_data)
+                if forecast_fig:
+                    st.plotly_chart(forecast_fig, use_container_width=True)
+                else:
+                    st.warning("Unable to generate forecast comparison chart")
+            else:
+                st.warning("Historical data not available")
+            
+            # Add chart description
+            st.info("""
+            **Chart Description**: This chart shows quarterly revenue data from 2021 to 2025, including historical data (black line) and model predictions (dashed lines).
+            Note Apple's pronounced seasonal pattern - the first fiscal quarter (calendar Q4) is typically highest due to the holiday sales season.
+            """)
+            
+            # Add historical data diagnostic button
+            if st.button("Analyze Historical Data"):
+                st.write("### Historical Data Analysis")
+                hist_data = ml_results.get('all_results', {}).get('historical_data')
+                
+                if hist_data is not None and isinstance(hist_data, pd.DataFrame):
+                    st.write(f"Number of data points: {len(hist_data)}")
+                    
+                    # Check year coverage
+                    if 'date' in hist_data.columns:
+                        hist_data['date'] = pd.to_datetime(hist_data['date'])
+                        hist_data['year'] = hist_data['date'].dt.year
+                        years_covered = hist_data['year'].nunique()
+                        st.write(f"Years covered: {years_covered} ({hist_data['year'].min()}-{hist_data['year'].max()})")
+                        
+                        # Check seasonality
+                        hist_data['quarter'] = hist_data['date'].dt.quarter
+                        quarterly_avg = hist_data.groupby('quarter')['revenue'].mean().reset_index()
+                        
+                        # Calculate inter-quarter differences
+                        max_q = quarterly_avg['revenue'].max()
+                        min_q = quarterly_avg['revenue'].min()
+                        
+                        # Display quarterly distribution
+                        st.write("Average quarterly revenue:")
+                        st.write(quarterly_avg)
+                        
+                        # Display quarterly distribution chart
+                        quarter_fig = px.bar(quarterly_avg, x='quarter', y='revenue',
+                                            title='Average Quarterly Revenue',
+                                            labels={'quarter': 'Quarter', 'revenue': 'Average Revenue (Billions USD)'})
+                        st.plotly_chart(quarter_fig, use_container_width=True)
+                        
+                        # Determine if there's enough data to train ML models
+                        if years_covered < 2:
+                            st.warning("Historical data covers less than 2 years, may cause difficulty in recognizing seasonal patterns")
+                        elif years_covered < 3:
+                            st.info("Historical data covers less than 3 years, seasonal patterns may not be stable enough")
+                        else:
+                            st.success(f"Historical data covers {years_covered} years, sufficient to identify seasonal patterns")
+            
+
+        # Add session state to save button status
+        if 'use_ml_prediction' not in st.session_state:
+            st.session_state.use_ml_prediction = False
+
+        # Add button and update status
+        if st.button("Use ML Prediction in DCF Model"):
+            st.session_state.use_ml_prediction = True
+            st.success(f"Using ML prediction of {ml_results['growth_percentage']:.2f}% growth rate in the model")
     
     # Collect user input parameters
     with st.expander("Model Parameters", expanded=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            # Base year inputs (FY 2023)
+            # Base year inputs (FY 2024)
             section_header("Base Year Financials (Billions USD)")
             revenue = st.number_input("Annual Revenue", value=apple_data['revenue'])
             net_income = st.number_input("Net Income", value=apple_data['net_income'])
@@ -124,12 +317,12 @@ elif page == "DCF Model":
             # Growth and ratio assumptions
             section_header("Projection Assumptions")
             # Use ML prediction if button was clicked
-            default_growth = ml_results['growth_percentage'] if 'use_ml_prediction' in locals() and use_ml_prediction else 5.0
+            default_growth = ml_results['growth_percentage'] if st.session_state.use_ml_prediction else 5.0
             revenue_growth = st.slider("Revenue Growth Rate (%)", min_value=0.0, max_value=15.0, value=default_growth, step=0.5)
             profit_margin = st.slider("Net Profit Margin (%)", min_value=20.0, max_value=30.0, value=25.3, step=0.1)
             capex_to_revenue = st.slider("CapEx to Revenue (%)", min_value=2.0, max_value=5.0, value=2.8, step=0.1)
-            discount_rate = st.slider("Discount Rate (WACC %)", min_value=5.0, max_value=15.0, value=9.0, step=0.1)
-            terminal_growth_rate = st.slider("Terminal Growth Rate (%)", min_value=2.0, max_value=5.0, value=2.5, step=0.1)
+            discount_rate = st.slider("Discount Rate (WACC %)", min_value=5.0, max_value=15.0, value=8.5, step=0.1)
+            terminal_growth_rate = st.slider("Terminal Growth Rate (%)", min_value=2.0, max_value=5.0, value=3.5, step=0.1)
     
     # Call DCF model calculation function
     params = {
@@ -190,6 +383,47 @@ elif page == "DCF Model":
         st.metric("Implied Share Price", f"${implied_share_price:.2f}")
     with col3:
         st.metric("Upside Potential", f"{upside_potential:.1f}%", f"{upside_potential:.1f}%")
+
+    # Add this somewhere in the DCF Model page
+    with st.expander("Compare Historical vs. Predicted Growth"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric(
+                "Recent Historical Growth (YoY)", 
+                f"{5.8}%",  # Replace with actual value from peer comparison
+                help="Year-over-year revenue growth from most recent quarterly reports"
+            )
+        
+        with col2:
+            # Handle NaN values in the display
+            if pd.isna(ml_results.get('growth_percentage')):
+                growth_value = 3.0  # Default fallback
+                st.metric(
+                    "ML-Predicted Future Growth", 
+                    f"{growth_value:.2f}%",
+                    delta="N/A",
+                    help="Machine learning consensus prediction for future annual growth (fallback value due to calculation error)"
+                )
+            else:
+                growth_value = ml_results['growth_percentage']
+                st.metric(
+                    "ML-Predicted Future Growth", 
+                    f"{growth_value:.2f}%",
+                    delta=f"{growth_value - 5.8:.2f}%",  # Replace 5.8 with actual historical value
+                    help="Machine learning consensus prediction for future annual growth"
+                )
+        
+        st.markdown("""
+        **Interpretation:**
+        - If predicted growth is significantly lower than historical growth, this suggests a conservative forecast that anticipates slowing growth.
+        - If predicted growth is higher than historical growth, this suggests an optimistic forecast that anticipates accelerating growth.
+        - Significant differences may warrant further investigation of model assumptions and market conditions.
+        """)
+
+    # After processing ML prediction results, ensure all models have quarterly predictions
+    if 'ml_results' in locals() and ml_results:
+        ml_results = dp.ensure_model_quarterly_predictions(ml_results)
 
 # Sensitivity Analysis page
 elif page == "Sensitivity Analysis":
