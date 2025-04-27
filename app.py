@@ -456,20 +456,100 @@ elif page == "Sensitivity Analysis":
         revenue_growth_range = st.slider("Revenue Growth Range (%)", min_value=3.0, max_value=7.0, value=(4.0, 6.0), step=0.5)
         margin_range = st.slider("Profit Margin Range (%)", min_value=23.0, max_value=27.0, value=(24.0, 26.0), step=0.5)
     
-    # Generate sensitivity table and chart
-    section_header("Enterprise Value Sensitivity (Billions USD): WACC vs. Terminal Growth")
-    sensitivity_df, sensitivity_data, wacc_values, growth_values = dcf.run_sensitivity_analysis(
-        wacc_range, growth_range, base_fcf=94.795
-    )
+    # Add tab selection for different sensitivity analyses
+    sensitivity_tab1, sensitivity_tab2 = st.tabs(["WACC vs. Growth", "Revenue Growth vs. Margin"])
     
-    # Style the dataframe
-    styled_df = dp.style_sensitivity_table(sensitivity_df)
-    st.dataframe(styled_df, use_container_width=True)
+    with sensitivity_tab1:
+        # Generate sensitivity table and chart for WACC vs Terminal Growth
+        section_header("Enterprise Value Sensitivity (Billions USD): WACC vs. Terminal Growth")
+        sensitivity_df, sensitivity_data, wacc_values, growth_values = dcf.run_sensitivity_analysis(
+            wacc_range, growth_range, base_fcf=94.795
+        )
+        
+        # Add fixed assumptions note
+        st.markdown("#### Fixed assumptions: Revenue Growth = 5.0%, Profit Margin = 25.0%, Base FCF = $94.795B")
+        
+        # Style the dataframe
+        styled_df = dp.style_sensitivity_table(sensitivity_df)
+        st.dataframe(styled_df, use_container_width=True)
+        
+        # 3D chart
+        section_header("3D Sensitivity Visualization")
+        fig = dp.get_3d_sensitivity_chart(wacc_values, growth_values, sensitivity_data)
+        st.plotly_chart(fig, use_container_width=True)
     
-    # 3D chart
-    section_header("3D Sensitivity Visualization")
-    fig = dp.get_3d_sensitivity_chart(wacc_values, growth_values, sensitivity_data)
-    st.plotly_chart(fig, use_container_width=True)
+    with sensitivity_tab2:
+        # Generate sensitivity analysis for Revenue Growth vs Margin
+        section_header("Enterprise Value Sensitivity (Billions USD): Revenue Growth vs. Profit Margin")
+        
+        # Create revenue growth values array
+        rev_growth_min, rev_growth_max = revenue_growth_range
+        rev_growth_values = np.linspace(rev_growth_min/100, rev_growth_max/100, 5)
+        
+        # Create margin values array
+        margin_min, margin_max = margin_range
+        margin_values = np.linspace(margin_min/100, margin_max/100, 5)
+        
+        # Initialize results matrix
+        growth_margin_sensitivity = np.zeros((len(margin_values), len(rev_growth_values)))
+        
+        # Use fixed WACC and terminal growth
+        fixed_wacc = 9.0/100
+        fixed_terminal_growth = 2.5/100
+        
+        # Calculate EV for each combination
+        for i, margin in enumerate(margin_values):
+            for j, growth in enumerate(rev_growth_values):
+                # Setup parameters
+                params = {
+                    'revenue': apple_data['revenue'],
+                    'net_income': apple_data['net_income'],
+                    'depreciation': apple_data['depreciation'],
+                    'capex': apple_data['capex'],
+                    'change_in_wc': apple_data['change_in_wc'],
+                    'revenue_growth': growth,
+                    'profit_margin': margin,
+                    'capex_to_revenue': 2.8/100,
+                    'discount_rate': fixed_wacc,
+                    'terminal_growth_rate': fixed_terminal_growth,
+                    'current_year': current_year,
+                    'projection_years': projection_years
+                }
+                
+                # Run DCF model calculations
+                _, enterprise_value, _, _ = dcf.run_dcf_model(params)
+                growth_margin_sensitivity[i, j] = enterprise_value
+        
+        # Create pandas DataFrame for display
+        growth_labels = [f"{g*100:.1f}%" for g in rev_growth_values]
+        margin_labels = [f"{m*100:.1f}%" for m in margin_values]
+        growth_margin_df = pd.DataFrame(growth_margin_sensitivity, index=margin_labels, columns=growth_labels)
+        
+        # Display table
+        styled_growth_margin_df = dp.style_sensitivity_table(growth_margin_df)
+        st.markdown("#### Fixed assumptions: WACC = 9.0%, Terminal Growth = 2.5%")
+        st.dataframe(styled_growth_margin_df, use_container_width=True)
+        
+        # Create 3D visualization
+        fig2 = go.Figure(data=[go.Surface(
+            z=growth_margin_sensitivity, 
+            x=rev_growth_values*100, 
+            y=margin_values*100,
+            colorscale='Viridis'
+        )])
+        
+        fig2.update_layout(
+            title='Enterprise Value Sensitivity',
+            scene=dict(
+                xaxis_title='Revenue Growth (%)',
+                yaxis_title='Profit Margin (%)',
+                zaxis_title='Enterprise Value ($B)'
+            ),
+            width=800,
+            height=600
+        )
+        
+        st.plotly_chart(fig2, use_container_width=True)
     
     # Key insights - dynamic calculations
     current_price = apple_data['current_price']
