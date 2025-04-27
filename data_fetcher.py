@@ -1,6 +1,6 @@
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import json
 import numpy as np
@@ -219,14 +219,15 @@ def get_last_update_time():
                     # Check if the timestamp is in the future
                     try:
                         timestamp_dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
-                        now = datetime.now()
+                        # Always use UTC for comparison to avoid timezone issues
+                        now = datetime.now(timezone.utc).replace(tzinfo=None)
                         if timestamp_dt > now:
                             # If date is in the future, return current time instead
                             return now.strftime("%Y-%m-%d %H:%M:%S") + " (corrected)"
                         return timestamp_str
                     except ValueError:
                         # If date format is invalid, return current time
-                        return datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " (reset)"
+                        return datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S") + " (reset)"
                 else:
                     return "Never (using default data)"
         except Exception as e:
@@ -637,3 +638,85 @@ def get_current_stock_price(ticker="AAPL"):
     except Exception as e:
         print(f"Error fetching current stock price: {e}")
         return 191.24  
+
+def fix_future_timestamps_in_cache():
+    """Fix any cache files that have timestamps in the future"""
+    fixed_files = []
+    # Use UTC time for consistency across environments
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Check the main cache file
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                cache_data = json.load(f)
+            
+            modified = False
+            # Check if main timestamp exists and is in the future
+            if "timestamp" in cache_data:
+                try:
+                    timestamp_dt = datetime.strptime(cache_data["timestamp"], "%Y-%m-%d %H:%M:%S")
+                    if timestamp_dt > now:
+                        cache_data["timestamp"] = now_str
+                        modified = True
+                        fixed_files.append(CACHE_FILE)
+                except ValueError:
+                    # If timestamp is invalid, update it
+                    cache_data["timestamp"] = now_str
+                    modified = True
+                    fixed_files.append(CACHE_FILE)
+            
+            # Check for timestamps in nested data structures
+            for key, value in cache_data.items():
+                if isinstance(value, dict) and "timestamp" in value:
+                    try:
+                        timestamp_dt = datetime.strptime(value["timestamp"], "%Y-%m-%d %H:%M:%S")
+                        if timestamp_dt > now:
+                            value["timestamp"] = now_str
+                            modified = True
+                            fixed_files.append(f"{CACHE_FILE}:{key}")
+                    except (ValueError, TypeError):
+                        value["timestamp"] = now_str
+                        modified = True
+                        fixed_files.append(f"{CACHE_FILE}:{key}")
+            
+            # Save updated cache if modified
+            if modified:
+                with open(CACHE_FILE, 'w') as f:
+                    json.dump(cache_data, f)
+        except Exception as e:
+            print(f"Error fixing timestamps in {CACHE_FILE}: {e}")
+    
+    # Check other common cache files in the cache directory
+    cache_dir = "cache"
+    if os.path.exists(cache_dir) and os.path.isdir(cache_dir):
+        for filename in os.listdir(cache_dir):
+            if filename.endswith(".json"):
+                file_path = os.path.join(cache_dir, filename)
+                try:
+                    with open(file_path, 'r') as f:
+                        cache_data = json.load(f)
+                    
+                    modified = False
+                    # Check for "last_updated" field (common in cache files)
+                    if "last_updated" in cache_data:
+                        try:
+                            timestamp_dt = datetime.strptime(cache_data["last_updated"], "%Y-%m-%d %H:%M:%S")
+                            if timestamp_dt > now:
+                                cache_data["last_updated"] = now_str
+                                modified = True
+                                fixed_files.append(file_path)
+                        except ValueError:
+                            cache_data["last_updated"] = now_str
+                            modified = True
+                            fixed_files.append(file_path)
+                    
+                    # Save updated cache if modified
+                    if modified:
+                        with open(file_path, 'w') as f:
+                            json.dump(cache_data, f)
+                except Exception as e:
+                    print(f"Error fixing timestamps in {file_path}: {e}")
+    
+    return fixed_files
