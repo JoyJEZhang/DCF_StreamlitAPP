@@ -4,7 +4,7 @@ This interactive Streamlit dashboard provides a comprehensive DCF (Discounted Ca
 
 ## Live Demo
 
-**Access the live application: [https://investment-dashboard-joy.streamlit.app/](https://investment-dashboard-joy.streamlit.app/)**
+**Access the live application: [https://dcf-analysis-joy.streamlit.app/](https://dcf-analysis-joy.streamlit.app/)**
 
 ## Features
 
