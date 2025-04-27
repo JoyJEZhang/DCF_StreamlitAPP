@@ -215,7 +215,18 @@ def get_last_update_time():
             with open(CACHE_FILE, 'r') as f:
                 cache_data = json.load(f)
                 if "timestamp" in cache_data:
-                    return cache_data["timestamp"]
+                    timestamp_str = cache_data["timestamp"]
+                    # Check if the timestamp is in the future
+                    try:
+                        timestamp_dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+                        now = datetime.now()
+                        if timestamp_dt > now:
+                            # If date is in the future, return current time instead
+                            return now.strftime("%Y-%m-%d %H:%M:%S") + " (corrected)"
+                        return timestamp_str
+                    except ValueError:
+                        # If date format is invalid, return current time
+                        return datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " (reset)"
                 else:
                     return "Never (using default data)"
         except Exception as e:
