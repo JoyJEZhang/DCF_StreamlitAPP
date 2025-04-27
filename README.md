@@ -5,7 +5,6 @@ This interactive Streamlit dashboard provides a comprehensive DCF (Discounted Ca
 ## Live Demo
 
 **Access the live application: [https://dcf-analysis-joy.streamlit.app/](https://dcf-analysis-joy.streamlit.app/)**
-
 ## Features
 
 - **Real-time Stock Price Integration**: Dynamic stock prices from Yahoo Finance for up-to-date valuations
