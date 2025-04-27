@@ -8,10 +8,7 @@ from datetime import datetime
 
 def get_apple_dcf_data(refresh=False):
        """Get Apple's financial data for DCF model"""
-       if refresh:
-           return df.fetch_apple_dcf_data()
-       else:
-           return df.get_apple_dcf_data()
+       return df.get_apple_dcf_data(refresh=refresh)
        
 def get_revenue_trend_chart():
     """Generate revenue trend and forecast chart based on actual data"""
@@ -82,36 +79,16 @@ def get_ev_composition_chart(sum_pv_fcf, pv_terminal_value):
 
 def get_peer_comparison_data(refresh=False):
     """
-    Retrieve peer comparison data from Yahoo Finance or cache
+    Return peer comparison data with hardcoded values
     
     Args:
-        refresh (bool): If True, force refresh data from Yahoo Finance
+        refresh (bool): Parameter kept for compatibility, but ignored
         
     Returns:
         pd.DataFrame: Comparison metrics for tech peers
     """
-    if refresh:
-        # Force fetch from Yahoo Finance
-        return df.fetch_peer_comparison_data()
-    
-    # Try to get from cache first
-    try:
-        cached_data = df.get_cached_or_default_data()
-        # Check if data is recent (within last 7 days)
-        last_update = df.get_last_update_time()
-        if last_update != "Never (using default data)":
-            last_update_date = datetime.strptime(last_update, "%Y-%m-%d %H:%M:%S")
-            days_old = (datetime.now() - last_update_date).days
-            
-            if days_old > 7:
-                print("Cached data is more than 7 days old. Refreshing from Yahoo Finance...")
-                return df.fetch_peer_comparison_data()
-            
-        return cached_data
-    except Exception as e:
-        print(f"Error retrieving cached data: {e}")
-        # Fallback to Yahoo Finance
-        return df.fetch_peer_comparison_data()
+    # Always use hardcoded data from data_fetcher
+    return df.get_peer_comparison_data()
 
 def get_radar_chart(peer_df):
     """Generate radar chart displaying competitive positioning"""
