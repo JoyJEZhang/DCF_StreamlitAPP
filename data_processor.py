@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import data_fetcher as df
 import sys
+from datetime import datetime
 
 def get_apple_dcf_data(refresh=False):
        """Get Apple's financial data for DCF model"""
@@ -13,19 +14,52 @@ def get_apple_dcf_data(refresh=False):
            return df.get_apple_dcf_data()
        
 def get_revenue_trend_chart():
-    """Generate revenue trend and forecast chart"""
-    years = [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028]
-    historical_revenue = [260.2, 274.5, 365.8, 394.3, 383.3, None, None, None, None, None]
-    projected_revenue = [None, None, None, None, 383.3, 402.5, 422.6, 443.7, 465.9, 489.2]
+    """Generate revenue trend and forecast chart based on actual data"""
+    # Get historical data from data_fetcher
+    hist_data = df.get_hardcoded_apple_revenue_data()
     
+    # Prepare yearly data by aggregating quarterly data
+    yearly_data = hist_data.copy()
+    yearly_data['year'] = yearly_data['date'].dt.year
+    yearly_revenue = yearly_data.groupby('year')['revenue'].sum().reset_index()
+    
+    # Use ML prediction for future years
+    ml_results = get_ml_growth_prediction()
+    growth_rate = ml_results['growth_percentage'] / 100
+    
+    # Create arrays for chart
+    years = list(range(2019, 2029))
+    historical_years = yearly_revenue[yearly_revenue['year'] <= 2023]['year'].tolist()
+    historical_revenue = yearly_revenue[yearly_revenue['year'] <= 2023]['revenue'].tolist()
+    
+    # Fill in missing historical years with None
+    full_historical = []
+    for year in years:
+        if year in historical_years:
+            idx = historical_years.index(year)
+            full_historical.append(historical_revenue[idx])
+        else:
+            full_historical.append(None)
+    
+    # Generate projections
+    last_actual_year = 2023
+    last_actual_revenue = yearly_revenue[yearly_revenue['year'] == last_actual_year]['revenue'].iloc[0]
+    
+    projected_revenue = [None] * len(years)
+    for i, year in enumerate(years):
+        if year >= last_actual_year:
+            years_forward = year - last_actual_year
+            projected_revenue[i] = last_actual_revenue * ((1 + growth_rate) ** years_forward)
+    
+    # Create chart
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=years, y=historical_revenue, mode='lines+markers', 
-                            name='Historical Revenue', line=dict(color='blue')))
+    fig.add_trace(go.Scatter(x=years, y=full_historical, mode='lines+markers', 
+                             name='Historical Revenue', line=dict(color='blue')))
     fig.add_trace(go.Scatter(x=years, y=projected_revenue, mode='lines+markers', 
-                            name='Projected Revenue', line=dict(color='green', dash='dash')))
+                             name='Projected Revenue', line=dict(color='green', dash='dash')))
     fig.update_layout(title='Revenue Trend and Forecast (Billions USD)',
-                    xaxis_title='Fiscal Year',
-                    yaxis_title='Revenue (Billions USD)')
+                     xaxis_title='Fiscal Year',
+                     yaxis_title='Revenue (Billions USD)')
     return fig
 
 def get_fcf_chart(projection_df):
@@ -46,24 +80,42 @@ def get_ev_composition_chart(sum_pv_fcf, pv_terminal_value):
     fig = px.pie(values=values, names=labels, title='Enterprise Value Composition')
     return fig
 
-def get_peer_comparison_data():
-    """Retrieve peer comparison data"""
-    # Peer comparison data
-    peers = ["Apple", "Microsoft", "Alphabet", "Amazon", "Meta"]
-    metrics = {
-        "Market Cap ($B)": [2980, 2890, 1780, 1760, 1130],
-        "P/E Ratio": [31.5, 34.8, 24.5, 59.3, 26.1],
-        "Revenue Growth (%)": [5.8, 7.2, 9.5, 8.7, 11.2],
-        "Net Margin (%)": [25.3, 36.8, 23.7, 8.5, 29.2],
-        "ROE (%)": [160.1, 42.5, 27.8, 18.7, 26.9],
-        "EV/EBITDA": [24.8, 25.3, 14.7, 21.5, 15.8]
-    }
+def get_peer_comparison_data(refresh=False):
+    """
+    Retrieve peer comparison data from Yahoo Finance or cache
     
-    return pd.DataFrame(metrics, index=peers)
+    Args:
+        refresh (bool): If True, force refresh data from Yahoo Finance
+        
+    Returns:
+        pd.DataFrame: Comparison metrics for tech peers
+    """
+    if refresh:
+        # Force fetch from Yahoo Finance
+        return df.fetch_peer_comparison_data()
+    
+    # Try to get from cache first
+    try:
+        cached_data = df.get_cached_or_default_data()
+        # Check if data is recent (within last 7 days)
+        last_update = df.get_last_update_time()
+        if last_update != "Never (using default data)":
+            last_update_date = datetime.strptime(last_update, "%Y-%m-%d %H:%M:%S")
+            days_old = (datetime.now() - last_update_date).days
+            
+            if days_old > 7:
+                print("Cached data is more than 7 days old. Refreshing from Yahoo Finance...")
+                return df.fetch_peer_comparison_data()
+            
+        return cached_data
+    except Exception as e:
+        print(f"Error retrieving cached data: {e}")
+        # Fallback to Yahoo Finance
+        return df.fetch_peer_comparison_data()
 
 def get_radar_chart(peer_df):
     """Generate radar chart displaying competitive positioning"""
-    # Normalize radar chart data
+    # Normalize radar chart data - only using 4 metrics now
     radar_metrics = ["Revenue Growth (%)", "Net Margin (%)", "ROE (%)", "EV/EBITDA"]
     radar_df = peer_df[radar_metrics].copy()
     
@@ -122,13 +174,6 @@ def get_3d_sensitivity_chart(wacc_values, growth_values, sensitivity_data):
     )
     return fig
 
-def get_apple_dcf_data(refresh=False):
-    """Get Apple's financial data for DCF model"""
-    if refresh:
-        return df.fetch_apple_dcf_data()
-    else:
-        return df.get_apple_dcf_data()
-
 def get_ml_growth_prediction(refresh=False):
     """
     Get ML-based revenue growth prediction
@@ -137,85 +182,83 @@ def get_ml_growth_prediction(refresh=False):
     - Dictionary with growth percentage and model details
     """
     try:
-        # 获取历史收入数据
+        # Get historical revenue data
         hist_data = df.get_historical_revenue_data(refresh=refresh)
         print(f"Got historical data with shape: {hist_data.shape}")
         
-        # 确保数据格式正确
+        # Ensure data format is correct
         if 'date' not in hist_data.columns:
             print("WARNING: 'date' column missing from historical data")
         if 'revenue' not in hist_data.columns:
             print("WARNING: 'revenue' column missing from historical data")
         
-        # 导入ML模型模块
+        # Import ML models module
         import ml_models as ml
         
-        # 获取推荐的增长率
+        # Get recommended growth rate
         try:
             growth_results = ml.get_recommended_growth_rate(hist_data)
             print(f"ML predicted growth: {growth_results['growth_percentage']:.2f}%")
             return growth_results
         except Exception as e:
             print(f"Error getting recommended growth rate: {e}")
-            # 回退到模拟数据
+            # Fallback to mock data
             return _get_mock_ml_results()
             
     except Exception as e:
         print(f"Error in ML prediction: {e}")
-        # 默认回退值
+        # Default fallback values
         return _get_mock_ml_results()
 
 def _get_mock_ml_results():
-    """创建模拟ML结果用于显示"""
-    # 制造一些不同的模型结果
-    base_growth = 4.0  # 基准增长率4%
+    """Create mock ML results for display"""
+    # Create different model results
+    base_growth = 4.0  # Base growth rate 4%
     
-    # 创建模拟数据
+    # Create mock data
     all_results = {
         'linear': {'predicted_growth': base_growth * 0.95 / 100},
         'random_forest': {'predicted_growth': base_growth * 1.1 / 100},
-        'arima': {'predicted_growth': base_growth * 1.05 / 100},
-        'prophet': {'predicted_growth': base_growth * 0.97 / 100},
+        'ridge': {'predicted_growth': base_growth * 0.97 / 100},
         'historical_average': {'predicted_growth': base_growth / 100},
         'consensus': {
             'predicted_growth': base_growth * 1.02 / 100,
             'model_weights': {
                 'random_forest': 0.3,
-                'arima': 0.25,
-                'prophet': 0.25,
-                'linear': 0.15,
-                'historical_average': 0.05
+                'ridge': 0.35,
+                'linear': 0.25,
+                'historical_average': 0.1
             }
         }
     }
     
     return {
         'growth_percentage': base_growth * 1.02,
-        'models_used': ['linear', 'random_forest', 'arima', 'prophet', 'historical_average'],
+        'models_used': ['linear', 'random_forest', 'ridge', 'historical_average'],
         'all_results': all_results
     }
 
 def prepare_data_for_models(data):
-    """准备用于模型训练的数据，包括季节性特征"""
+    """Prepare data for model training, including seasonal features"""
     df = data.copy()
     
-    # 添加日期特征
+    # Add date features
     df['date'] = pd.to_datetime(df['date'])
     df['year'] = df['date'].dt.year
     df['quarter'] = df['date'].dt.quarter
     
-    # 添加季节性指标（苹果第一季度通常是最强的）
+    # Add seasonality indicators (Apple's Q1 is typically strongest)
     df['is_q1'] = (df['quarter'] == 1).astype(int)
     df['is_q4'] = (df['quarter'] == 4).astype(int)
     
-    # 添加趋势特征
+    # Add trend features
     df['time_idx'] = range(len(df))
     
-    # 创建滞后特征
+    # Create lag features
     df['revenue_lag1'] = df['revenue'].shift(1)
-    df['revenue_lag4'] = df['revenue'].shift(4)  # 年度同期
+    df['revenue_lag4'] = df['revenue'].shift(4)  # Year-over-year same quarter
     
-    # 计算同比增长率
+    # Calculate year-over-year growth rate
     df['yoy_growth'] = df['revenue'] / df['revenue_lag4'] - 1
     
     return df
@@ -226,25 +269,23 @@ def get_model_comparison_chart(ml_results):
     all_results = ml_results.get('all_results', {})
     print(f"DEBUG - Available models in all_results: {list(all_results.keys())}")
     
-    # Prepare chart data with EXPLICIT handling of model names
+    # Prepare chart data with explicit handling of model names
     models = []
     predictions = []
     
-    # 完整的模型映射字典，包含所有可能的模型
+    # Simplified model mapping - only includes models we actually use
     model_mapping = {
         'linear': 'Linear Regression',
-        'linear_regression': 'Linear Regression',  # 别名处理
-        'ridge': 'Ridge Regression',               # 添加 Ridge 模型
+        'linear_regression': 'Linear Regression',  # alias handling
+        'ridge': 'Ridge Regression',
         'random_forest': 'Random Forest',
-        'arima': 'Arima',
-        'prophet': 'Prophet',
         'historical_average': 'Historical Average'
     }
     
-    # 检查并添加所有可用模型，使用统一的处理方式
+    # Check and add all available models using a unified approach
     for key, display_name in model_mapping.items():
         if key in all_results and isinstance(all_results[key], dict) and 'predicted_growth' in all_results[key]:
-            # 避免重复添加 (例如 linear 和 linear_regression 可能指向同一个模型)
+            # Avoid duplicates (e.g., linear and linear_regression might point to the same model)
             if display_name not in models:
                 models.append(display_name)
                 predictions.append(all_results[key]['predicted_growth'] * 100)
@@ -302,84 +343,11 @@ def get_model_comparison_chart(ml_results):
     
     return fig
 
-def get_revenue_history_chart(ml_results):
-    """
-    Generate a chart showing historical revenue with ML model prediction
-    """
-    # 获取历史数据
-    hist_data = None
-    if 'all_results' in ml_results and 'historical_data' in ml_results['all_results']:
-        hist_data = ml_results['all_results']['historical_data']
-    
-    if hist_data is None or len(hist_data) == 0:
-        # 如果没有历史数据，使用默认数据
-        hist_data = df.get_historical_revenue_data()
-    
-    # 确保日期格式正确
-    if not pd.api.types.is_datetime64_any_dtype(hist_data['date']):
-        hist_data['date'] = pd.to_datetime(hist_data['date'])
-    
-    # 按日期排序
-    hist_data = hist_data.sort_values('date')
-    
-    # 创建历史收入的线图
-    fig = px.line(
-        hist_data,
-        x='date',
-        y='revenue',
-        title='Historical Quarterly Revenue with ML Growth Prediction',
-        labels={'revenue': 'Revenue (Billions USD)', 'date': 'Quarter'}
-    )
-    
-    # 添加基于ML consensus增长率的预测线
-    if 'growth_percentage' in ml_results:
-        # 获取最后一个数据点
-        last_date = hist_data['date'].max()
-        last_revenue = hist_data.loc[hist_data['date'] == last_date, 'revenue'].values[0]
-        
-        # 创建预测日期（未来4个季度）
-        projection_dates = pd.date_range(start=last_date, periods=5, freq='QE')
-        
-        # 使用预测的增长率计算预测收入
-        annual_growth_rate = ml_results['growth_percentage'] / 100
-        quarterly_growth_rate = (1 + annual_growth_rate) ** (1/4) - 1  # 将年增长率转换为季度增长率
-        
-        projection_revenue = [last_revenue]
-        for i in range(1, 5):
-            next_revenue = projection_revenue[-1] * (1 + quarterly_growth_rate)
-            projection_revenue.append(next_revenue)
-        
-        # 添加预测线
-        fig.add_trace(
-            go.Scatter(
-                x=projection_dates,
-                y=projection_revenue,
-                mode='lines+markers',
-                line=dict(dash='dash', color='green'),
-                name=f"ML Projection ({ml_results['growth_percentage']:.1f}% annual growth)"
-            )
-        )
-    
-    # 改进图表布局
-    fig.update_layout(
-        xaxis_title='Quarter',
-        yaxis_title='Revenue (Billions USD)',
-        height=500,
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=0.01
-        )
-    )
-    
-    return fig
-
 def get_model_validation_metrics(ml_results):
-    """获取并可视化模型验证指标"""
+    """Get and visualize model validation metrics"""
     all_results = ml_results.get('all_results', {})
     
-    # 收集所有指标
+    # Collect all metrics
     metrics_data = []
     
     for model_name, result in all_results.items():
@@ -387,9 +355,9 @@ def get_model_validation_metrics(ml_results):
             if isinstance(result, dict) and 'metrics' in result:
                 model_metrics = result['metrics']
                 
-                # 创建指标行
+                # Create metrics row
                 for metric_name, metric_value in model_metrics.items():
-                    if isinstance(metric_value, (int, float)):
+                    if isinstance(metric_value, (int, float)) and metric_name not in ['feature_importance']:
                         metrics_data.append({
                             'Model': model_name.replace('_', ' ').title(),
                             'Metric': metric_name.upper(),
@@ -399,10 +367,10 @@ def get_model_validation_metrics(ml_results):
     if not metrics_data:
         return None
     
-    # 创建指标数据框
+    # Create metrics dataframe
     metrics_df = pd.DataFrame(metrics_data)
     
-    # 创建模型验证可视化
+    # Create model validation visualization
     fig = px.bar(
         metrics_df,
         x='Model',
@@ -447,10 +415,9 @@ def get_model_forecast_comparison(ml_results, historical_data):
     
     # Set model colors
     model_colors = {
-        'linear': '#1f77b4',       # Blue
-        'random_forest': '#ff7f0e',# Orange
-        'arima': '#2ca02c',        # Green
-        'prophet': '#d62728',      # Red
+        'linear': '#1f77b4',         # Blue
+        'ridge': '#2ca02c',          # Green
+        'random_forest': '#ff7f0e',  # Orange
         'historical_average': '#9467bd'  # Purple
     }
     
@@ -462,7 +429,7 @@ def get_model_forecast_comparison(ml_results, historical_data):
     for model_name in available_models:
         if model_name in all_results:
             display_name = model_name.replace('_', ' ').title() + ' Forecast'
-            color = model_colors.get(model_name, '#8c564b')  # Use default brown if not specified
+            color = model_colors.get(model_name, '#8c564b')
             
             # Check if there are quarterly predictions
             quarterly_preds = all_results[model_name].get('quarterly_predictions', {})
@@ -507,12 +474,11 @@ def get_model_forecast_comparison(ml_results, historical_data):
                         freq='QE'
                     )
                     
-                    # Seasonality factors
+                    # Seasonality factors - simplified to only include models we use
                     seasonal_patterns = {
                         'linear': [1.1, 0.9, 0.85, 1.05],
+                        'ridge': [1.1, 0.9, 0.85, 1.05],
                         'random_forest': [1.15, 0.9, 0.85, 1.1],
-                        'arima': [1.2, 0.9, 0.85, 1.05],
-                        'prophet': [1.3, 0.8, 0.75, 1.15],
                         'historical_average': [1.4, 0.8, 0.7, 1.1]
                     }
                     
@@ -546,74 +512,6 @@ def get_model_forecast_comparison(ml_results, historical_data):
     
     return fig
 
-def generate_emergency_forecast(model_name, historical_data):
-    """Generate emergency forecast when a model is missing"""
-    import ml_models
-    
-    if model_name == 'arima':
-        return ml_models.emergency_arima_model(historical_data)
-    elif model_name == 'prophet':
-        return ml_models.emergency_prophet_model(historical_data)
-    elif model_name == 'linear':
-        # Simple linear trend
-        df = historical_data.copy()
-        growth_rate = 0.03  # Default 3%
-        return {
-            'predicted_growth': growth_rate,
-            'metrics': {'r2': 0.5, 'mse': 0.01, 'mae': 0.08}
-        }
-    else:  # historical_average
-        # Default historical average
-        return {
-            'predicted_growth': 0.035,
-            'metrics': {'r2': 0.5, 'mse': 0.02, 'mae': 0.05}
-        }
-
-def generate_default_predictions(model_name, historical_data):
-    """Generate default quarterly predictions based on model characteristics"""
-    df = historical_data.sort_values('date')
-    last_revenue = df['revenue'].iloc[-1]
-    last_date = df['date'].max()
-    
-    # Generate future quarters
-    future_dates = pd.date_range(
-        start=last_date + pd.DateOffset(months=3),
-        periods=5,
-        freq='QE'
-    )
-    
-    # Model-specific growth patterns
-    growth_rates = {
-        'linear': 0.03,  # 3% linear
-        'arima': 0.04,   # 4% ARIMA 
-        'prophet': 0.035, # 3.5% Prophet
-        'historical_average': 0.045  # 4.5% Historical
-    }
-    
-    # Model-specific seasonality
-    seasonality = {
-        'linear': [1.1, 0.9, 0.85, 1.05],  # Modest seasonality
-        'arima': [1.2, 0.9, 0.85, 1.05],   # Medium seasonality
-        'prophet': [1.3, 0.8, 0.75, 1.15], # Strong seasonality 
-        'historical_average': [1.4, 0.8, 0.7, 1.1]  # Stronger seasonality
-    }
-    
-    # Generate predictions
-    predictions = {}
-    for i, date in enumerate(future_dates):
-        quarter = (date.month-1)//3  # 0-3 for indexing
-        season_factor = seasonality.get(model_name, [1.0, 1.0, 1.0, 1.0])[quarter]
-        growth = growth_rates.get(model_name, 0.03)
-        
-        # Compound growth with quarter
-        compound = (1 + growth) ** (i+1)
-        
-        # Apply growth and seasonality
-        value = last_revenue * compound * season_factor
-        predictions[date.strftime('%Y-%m-%d')] = value
-    
-    return predictions
-
 def ensure_model_quarterly_predictions(ml_results):
     """Ensure all models have quarterly prediction data"""
     all_results = ml_results.get('all_results', {})
@@ -630,8 +528,8 @@ def ensure_model_quarterly_predictions(ml_results):
     last_date = historical_data['date'].max()
     last_revenue = historical_data.loc[historical_data['date'] == last_date, 'revenue'].iloc[0]
     
-    # List of models that need to be fixed
-    models_to_check = ['arima', 'prophet', 'linear', 'random_forest', 'historical_average']
+    # List of models that need to be fixed - only what we're using
+    models_to_check = ['linear', 'ridge', 'random_forest', 'historical_average']
     
     for model_name in models_to_check:
         if model_name in all_results:
@@ -650,9 +548,8 @@ def ensure_model_quarterly_predictions(ml_results):
                 # Different models have slightly different seasonality
                 seasonal_patterns = {
                     'linear': [1.1, 0.9, 0.85, 1.05],
+                    'ridge': [1.1, 0.9, 0.85, 1.05],
                     'random_forest': [1.15, 0.9, 0.85, 1.1],
-                    'arima': [1.2, 0.9, 0.85, 1.05],
-                    'prophet': [1.3, 0.8, 0.75, 1.15],
                     'historical_average': [1.4, 0.8, 0.7, 1.1]
                 }
                 

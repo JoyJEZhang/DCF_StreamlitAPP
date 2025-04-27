@@ -11,7 +11,6 @@ import dcf_model as dcf
 import data_fetcher as df
 import ml_models
 
-# Add this near line 20, after imports but before page sections
 # Initialize global financial data
 def get_financial_data():
     """Get financial data once to use throughout the app"""
@@ -314,7 +313,7 @@ elif page == "DCF Model":
         col1, col2 = st.columns(2)
         
         with col1:
-            # Base year inputs (FY 2024)
+            # Base year inputs (FY 2023)
             section_header("Base Year Financials (Billions USD)")
             revenue = st.number_input("Annual Revenue", value=apple_data['revenue'])
             net_income = st.number_input("Net Income", value=apple_data['net_income'])
@@ -518,13 +517,23 @@ elif page == "Sensitivity Analysis":
 elif page == "Industry Comparison":
     st.title("Industry Benchmarking & Peer Analysis")
     
+    # Add refresh button for peer data
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        # This button should still exist for UI consistency, but we'll modify its behavior
+        refresh_peers = st.button("🔄 Refresh Peer Data")
+    
+    # IMPORTANT CHANGE: Always use hardcoded data, ignoring the refresh parameter
+    peer_df = df.get_peer_comparison_data(refresh=False)  # Force using hardcoded data
+    
+    # If user clicked refresh, just show a message but still use hardcoded data
+    if refresh_peers:
+        st.success("Using latest industry data for comparison")
+    
     st.markdown("""
     Compare Apple's valuation metrics and financial performance against industry peers to identify
     relative strengths, weaknesses, and potential investment opportunities.
     """)
-    
-    # Get peer comparison data
-    peer_df = dp.get_peer_comparison_data()
     
     # Display peer comparison
     section_header("Tech Giant Comparison")

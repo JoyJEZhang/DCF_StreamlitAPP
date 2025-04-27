@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
+from data_fetcher import get_current_stock_price
 
 def run_dcf_model(params):
     """
